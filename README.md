@@ -3,6 +3,9 @@
 # Disclaimer:
 This project is inspired by a real-world staff data validation initiative in a large academic organisation. All institution names, department titles, and datasets have been anonymized. This version is for public sharing and portfolio demonstration purposes only. 
 
+# Demonstration of My Expertise in DAX and Data Problem Solving
+This project highlights my expertise in using DAX to address real-world data challenges. During the development of the Staff Validation System, I applied advanced DAX techniques to solve issues such as detecting duplicate records, validating FTE values, and flagging inconsistencies across multiple data sources. The logic in the code files reflects how complex business rules can be turned into clear, actionable insights through DAX, helping to streamline the validation process and improve data reliability at scale.
+
 # Problem Statement:
 In any large organisation, especially in public sector and/or within a higher education setting, keeping staff data accurate across multiple systems is a constant challenge. Information about employees is often stored in different places, such as HR systems, faculty records, and operational platforms. When these systems do not match up, it becomes difficult to rely on the data.
 The Staff Validation System (SVS) project was launched to address this issue. Teams were facing problems like:
