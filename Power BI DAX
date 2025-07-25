@@ -1,0 +1,523 @@
+-- Identifies duplicate employee numbers in the Staff Data table to support data cleanup and validation.
+
+EmployeeNo_Duplicate_Check = 
+VAR CurrentValue = 'Staff Data'[STAFF_ID]
+VAR CountOfValue = 
+    CALCULATE(
+        COUNTROWS('Staff Data'),
+        FILTER('Staff Data', 'Staff Data'[STAFF_ID] = CurrentValue)
+    )
+RETURN IF(CountOfValue > 1, TRUE(), FALSE())
+
+-- Identifies duplicate post IDs in the Staff Data table to flag possible data entry issues.
+
+PostID_Duplicate_Check = 
+VAR CurrentValue = 'Staff Data'[POSITION_ID]
+VAR CountOfValue = 
+    CALCULATE(
+        COUNTROWS('Staff Data'),
+        FILTER('Staff Data', 'Staff Data'[POSITION_ID] = CurrentValue)
+    )
+RETURN IF(CountOfValue > 1, TRUE(), FALSE())
+
+-- Generates a unique anonymised code for each employee based on employee number, post ID, and first name.
+
+Anonymised Code = 
+VAR Emp = 'Staff Data'[STAFF_ID]
+VAR PostA = 'Staff Data'[POSITION_ID]
+VAR FirstName = 'Staff Data'[FIRST_NAME]
+VAR BaseCode = "A" & RIGHT(Emp, 6)
+
+-- Create a summary table with unique combinations of POSITION_ID and FIRST_NAME for the employee
+VAR UniqueCombos =
+    SUMMARIZE(
+        FILTER(
+            'Staff Data',
+            'Staff Data'[STAFF_ID] = Emp
+        ),
+        'Staff Data'[POSITION_ID],
+        'Staff Data'[FIRST_NAME]
+    )
+
+-- Count of unique combinations
+VAR UniqueComboCount = COUNTROWS(UniqueCombos)
+
+-- Create a table to rank the current combination
+VAR CurrentCombo = PostA & "|" & FirstName
+
+VAR ComboWithIndex =
+    ADDCOLUMNS(
+        UniqueCombos,
+        "ComboKey", 'Staff Data'[POSITION_ID] & "|" & 'Staff Data'[FIRST_NAME]
+    )
+
+VAR Index =
+    RANKX(
+        ComboWithIndex,
+        [ComboKey],
+        CurrentCombo,
+        ASC,
+        DENSE
+    )
+
+RETURN
+IF(
+    UniqueComboCount = 1,
+    BaseCode,
+    BaseCode & "_" & Index
+)
+-- Flags whether a record should be removed by matching it against the ToRemove table.
+
+Not Ease = 
+VAR Match = 
+    LOOKUPVALUE(
+        ToRemove[ID2],
+        ToRemove[ID1], [ID1_Name],
+        ToRemove[ID2], [ID2_Role_Name]
+    )
+RETURN
+IF(NOT(ISBLANK(Match)), "Remove", "Keep")
+
+-- Identifies employee records marked as LeaverRecords by comparing key identifiers with the LeaverRecords table.
+
+LeaverRecords = 
+VAR Match = 
+    LOOKUPVALUE(
+        LeaverRecords[ID2],
+        LeaverRecords[ID1], [ID1_Name],
+        LeaverRecords[ID2], [ID2_Role_Name]
+    )
+RETURN
+IF(NOT(ISBLANK(Match)), "Remove", "Keep")
+
+-- Categorises termination status based on leaver/removal status and presence of termination-related dates.
+
+TerminationStatus = 
+SWITCH(TRUE(),
+    'Staff Data'[LeaverRecords] = "Keep" && ISBLANK('Staff Data'[POST_END_DATE]) && ISBLANK('Staff Data'[ACTUAL_TERMINATION_DATE]), "No termination",
+    ISBLANK('Staff Data'[POST_END_DATE]) || ISBLANK('Staff Data'[ACTUAL_TERMINATION_DATE]), "Missing Date",
+    'Staff Data'[Not Ease] = "Keep" && 'Staff Data'[LeaverRecords] = "Keep" && 
+        NOT(ISBLANK('Staff Data'[POST_END_DATE])) && NOT(ISBLANK('Staff Data'[ACTUAL_TERMINATION_DATE])), 
+        "CHECK - no indication of termination but has both dates",
+    'Staff Data'[Not Ease] = "Remove" && 'Staff Data'[LeaverRecords] = "Keep" && 
+        NOT(ISBLANK('Staff Data'[POST_END_DATE])) && NOT(ISBLANK('Staff Data'[ACTUAL_TERMINATION_DATE])), 
+        "CHECK - non-Ease but has both termination dates",
+    "Has both dates"
+)
+
+-- Returns a clean FTE value based on hierarchy of checks, defaulting to 2 if invalid or duplicate.
+
+Final_Validated_FTE 1 = 
+
+VAR Emp = 'Staff Data'[STAFF_ID]
+VAR EmpCount =
+    CALCULATE(
+        COUNTROWS('Staff Data'),
+        FILTER('Staff Data', 'Staff Data'[STAFF_ID] = Emp)
+    )
+
+RETURN
+SWITCH(
+    TRUE(),
+
+    'Staff Data'[Final_Validated_FTE] > 0 && 'Staff Data'[Final_Validated_FTE] <= 1, 'Staff Data'[Final_Validated_FTE],
+    NOT(ISBLANK('Staff Data'[Final_Validated_FTE])) && ('Staff Data'[Final_Validated_FTE] > 1 || 'Staff Data'[Final_Validated_FTE] = 0), 2,
+    ISBLANK('Staff Data'[Final_Validated_FTE]) && NOT(ISBLANK('Staff Data'[Validated_FTE])) &&
+    'Staff Data'[Validated_FTE] > 0 && 'Staff Data'[Validated_FTE] <= 1, 'Staff Data'[Validated_FTE],
+    ISBLANK('Staff Data'[Final_Validated_FTE]) && NOT(ISBLANK('Staff Data'[Validated_FTE])) &&
+    ('Staff Data'[Validated_FTE] > 1 || 'Staff Data'[Validated_FTE] = 0), 2,
+    ISBLANK('Staff Data'[Final_Validated_FTE]) && ISBLANK('Staff Data'[Validated_FTE]) && NOT(ISBLANK('Staff Data'[FTE])) &&
+    'Staff Data'[FTE] > 0 && 'Staff Data'[FTE] <= 1, 'Staff Data'[FTE],
+    ISBLANK('Staff Data'[Final_Validated_FTE]) && ISBLANK('Staff Data'[Validated_FTE]) && NOT(ISBLANK('Staff Data'[FTE])) &&
+    ('Staff Data'[FTE] > 1 || 'Staff Data'[FTE] = 0), 2,
+    NOT(ISBLANK('Staff Data'[FTE])) && NOT(ISBLANK('Staff Data'[Validated_FTE])) &&
+    ('Staff Data'[FTE] + 'Staff Data'[Validated_FTE] > 1), 2,
+    ISBLANK('Staff Data'[FTE]) && ISBLANK('Staff Data'[Final_Validated_FTE]) && ISBLANK('Staff Data'[VALIDATED_FTE]), 2,
+    'Staff Data'[VALIDATED_FTE] > 'Staff Data'[FTE], 2,
+    EmpCount > 1, 2
+)
+
+-- Checks whether an employee from Staff Data also exists in the FACULTY_A dataset by employee number.
+
+Employee Match Status A & H = 
+VAR EmpNum = 'Staff Data'[STAFF_ID]
+VAR Employee = LOOKUPVALUE('FACULTY_A'[STAFF_ID], 'FACULTY_A'[STAFF_ID], EmpNum)
+
+RETURN
+IF(
+    ISBLANK(EmpNum),
+    BLANK(),
+    IF(
+        ISBLANK(Employee),
+        "No Match",
+        "Match"
+    )
+)
+
+-- Checks whether an employee from Staff Data also exists in the FACULTY_B dataset by employee number.
+
+Employee Match Status FACULTY_B = 
+VAR EmpNum = 'Staff Data'[STAFF_ID]
+VAR Employee = LOOKUPVALUE('FACULTY_B'[STAFF_ID], 'FACULTY_B'[STAFF_ID], EmpNum)
+
+RETURN
+IF(
+    ISBLANK(EmpNum),
+    BLANK(),
+    IF(
+        ISBLANK(Employee),
+        "No Match",
+        "Match"
+    )
+)
+
+-- Calculates job duration in months based on start date and earliest end or termination date.
+
+Job Duration = 
+VAR StartDate = 'Staff Data'[POST_START_DATE].[Date]
+VAR EndDate = 'Staff Data'[POST_END_DATE].[Date]
+VAR TermDate = 'Staff Data'[ACTUAL_TERMINATION_DATE].[Date]
+
+RETURN 
+IF(
+    ISBLANK(EndDate) && ISBLANK(TermDate),
+    BLANK(),
+    DATEDIFF(
+        StartDate,
+        IF(
+            ISBLANK(EndDate), TermDate,
+            IF(
+                ISBLANK(TermDate), EndDate,
+                MIN(EndDate, TermDate)
+            )
+        ),
+        MONTH
+    )
+)
+-- Categorises job durations as either greater than or less than 6 months for quick analysis.
+Duration Threshold = IF(ISBLANK('Staff Data'[Job Duration]), BLANK(), IF('Staff Data'[Job Duration] > 6, "> 6", "< 6"))
+
+-- Identifies employees scheduled to leave in the future based on termination date.
+Future LeaverRecords = IF('Staff Data'[ACTUAL_TERMINATION_DATE].[Date] > NOW(), "Future LeaverRecords", "No")
+
+-- Flags employees who joined within the past 6 months to track new starters.
+New Starter = 
+IF(
+    'Staff Data'[POST_START_DATE] >= EDATE(TODAY(), -6),
+    "New Starter",
+    "No"
+)
+ 
+-- Compares Staff Data with FACULTY_A to find matching ID1 and ID2 role combinations.
+ID1 & ID2 Match Status A & H = 
+IF (
+    NOT (
+        ISBLANK (
+            LOOKUPVALUE (
+                'FACULTY_A'[ID1_Name ],
+                'FACULTY_A'[ID1_Name ], 'Staff Data'[ID1_Name],
+                'FACULTY_A'[ID2_Role_Name], 'Staff Data'[ID2_Role_Name]
+            )
+        )
+    ),
+    "Match",
+    "Mismatch"
+)
+
+-- Compares Staff Data with FACULTY_A to find matching ID1 and ID2 role combinations.
+ID1 & ID2 Match Status A & H = 
+IF (
+    NOT (
+        ISBLANK (
+            LOOKUPVALUE (
+                'FACULTY_A'[ID1_Name ],
+                'FACULTY_A'[ID1_Name ], 'Staff Data'[ID1_Name],
+                'FACULTY_A'[ID2_Role_Name], 'Staff Data'[ID2_Role_Name]
+            )
+        )
+    ),
+    "Match",
+    "Mismatch"
+)
+
+-- Validates if ID1 and ID2 combinations in Staff Data exist in the FACULTY_B dataset.
+ID1 & ID2 Match Status FACULTY_B = 
+IF (
+    NOT (
+        ISBLANK (
+            LOOKUPVALUE (
+                'FACULTY_B'[ID1_Name],
+                'FACULTY_B'[ID1_Name], 'Staff Data'[ID1_Name],
+                'FACULTY_B'[ID2_Role_Name], 'Staff Data'[ID2_Role_Name]
+            )
+        )
+    ),
+    "Match",
+    "Mismatch"
+)
+
+-- Flags records as 'Vacant' based on name fields or employee number matching "vacant".
+Vacants Check = SWITCH(TRUE(),
+ 'Staff Data'[FIRST_NAME] = "vacant" && 'Staff Data'[LASTNAME] = "vacant","Vacant",
+ 'Staff Data'[STAFF_ID] = "vacant","Vacant",
+ "Non Vacant"
+)
+
+-- Identifies duplicate employee numbers in FACULTY_B for data validation.
+EmployeeNo_Duplicate_Check = 
+VAR CurrentValue = 'FACULTY_B'[STAFF_ID]
+RETURN 
+IF(
+    ISBLANK(CurrentValue),
+    FALSE(),
+    CALCULATE(
+        COUNTROWS('FACULTY_B'),
+        FILTER('FACULTY_B', 'FACULTY_B'[STAFF_ID] = CurrentValue)
+    ) > 1
+)
+
+-- Flags duplicate POSITION_IDs in FACULTY_B to detect potential data quality issues.
+PostID_Duplicate_Check = 
+VAR CurrentValue = 'FACULTY_B'[POSITION_ID]
+RETURN 
+IF(
+    ISBLANK(CurrentValue),
+    FALSE(),
+    CALCULATE(
+        COUNTROWS('FACULTY_B'),
+        FILTER('FACULTY_B', 'FACULTY_B'[POSITION_ID] = CurrentValue)
+    ) > 1
+)
+
+-- Generates a unique anonymised code for each employee to pseudonymise identity.
+Anonymised Code = 
+VAR Emp = 'FACULTY_B'[STAFF_ID]
+VAR PostA = 'FACULTY_B'[POSITION_ID]
+VAR FirstName = 'FACULTY_B'[FIRST_NAME]
+RETURN
+IF (
+    ISBLANK(Emp),
+    BLANK(),
+    VAR BaseCode = "A" & RIGHT(Emp, 6)
+    VAR UniqueCombos =
+        SUMMARIZE(
+            FILTER(
+                'FACULTY_B',
+                'FACULTY_B'[STAFF_ID] = Emp
+            ),
+            'FACULTY_B'[POSITION_ID],
+            'FACULTY_B'[FIRST_NAME]
+        )
+    VAR UniqueComboCount = COUNTROWS(UniqueCombos)
+    VAR CurrentCombo = PostA & "|" & FirstName
+    VAR ComboWithIndex =
+        ADDCOLUMNS(
+            UniqueCombos,
+            "ComboKey", 'FACULTY_B'[POSITION_ID] & "|" & 'FACULTY_B'[FIRST_NAME]
+        )
+    VAR Index =
+        RANKX(
+            ComboWithIndex,
+            [ComboKey],
+            CurrentCombo,
+            ASC,
+            DENSE
+        )
+    RETURN
+        IF(
+            UniqueComboCount = 1,
+            BaseCode,
+            BaseCode & "_" & Index
+        )
+)
+
+-- Creates a unique ID by combining department, employee, assignment, and last name.
+ID1_Name = [DEPT] & "|" & [STAFF_ID] & "|" & [ASSIGNMENT_ID] & "|" & [LASTNAME]
+
+-- Constructs a composite role-based identifier for detailed record comparison.
+ID2_Role_Name = 
+[DEPT] & "|" & 
+[FIRST_NAME] & "|" & 
+[LASTNAME] & "|" & 
+[STAFF_ID] & "|" & 
+[PERSON_ID] & "|" & 
+[ASSIGNMENT_ID] & "|" & 
+[JOB_TITLE] & "|" & 
+[Grade] & "|" & 
+FORMAT([FTE], "0") & "|" & 
+[SUPERVISOR_NAME] & "|" & 
+[IS_LINE_MANAGER]
+
+-- Flags if an employee in FACULTY_B is matched in Staff Data based on employee number.
+Employee Match Status = 
+VAR EmpNum = 'FACULTY_B'[STAFF_ID]
+VAR Employee = LOOKUPVALUE('Staff Data'[STAFF_ID], 'Staff Data'[STAFF_ID], EmpNum)
+RETURN
+IF(
+    ISBLANK(EmpNum),
+    BLANK(),
+    IF(
+        ISBLANK(Employee),
+        "No Match",
+        "Match"
+    )
+)
+
+-- Returns a clean and valid FTE value or flags invalid cases with 2.
+Final_Validated_FTE 1 = 
+VAR Emp = 'FACULTY_B'[STAFF_ID]
+VAR EmpCount =
+    CALCULATE(
+        COUNTROWS('FACULTY_B'),
+        FILTER('FACULTY_B', 'FACULTY_B'[STAFF_ID] = Emp)
+    )
+RETURN
+SWITCH(
+    TRUE(),
+    EmpCount > 1,2,
+    'FACULTY_B'[Final_Validated_FTE] > 0 && 'FACULTY_B'[Final_Validated_FTE] <= 1, 'FACULTY_B'[Final_Validated_FTE],
+    NOT(ISBLANK('FACULTY_B'[Final_Validated_FTE])) && ('FACULTY_B'[Final_Validated_FTE] > 1 || 'FACULTY_B'[Final_Validated_FTE] = 0), 2,
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_B'[Ease FTE])) &&
+    'FACULTY_B'[Ease FTE] > 0 && 'FACULTY_B'[Ease FTE] <= 1, 'FACULTY_B'[Ease FTE],
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_B'[Ease FTE])) &&
+    ('FACULTY_B'[Ease FTE] > 1 || 'FACULTY_B'[Ease FTE] = 0), 2,
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && ISBLANK('FACULTY_B'[Ease FTE]) && NOT(ISBLANK('FACULTY_B'[FTE])) &&
+    'FACULTY_B'[FTE] > 0 && 'FACULTY_B'[FTE] <= 1, 'FACULTY_B'[FTE],
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && ISBLANK('FACULTY_B'[Ease FTE]) && NOT(ISBLANK('FACULTY_B'[FTE])) &&
+    ('FACULTY_B'[FTE] > 1 || 'FACULTY_B'[FTE] = 0), 2,
+    NOT(ISBLANK('FACULTY_B'[FTE])) && NOT(ISBLANK('FACULTY_B'[Ease FTE])) &&
+    ('FACULTY_B'[FTE] + 'FACULTY_B'[Ease FTE] > 1), 2,
+    ISBLANK(FACULTY_B[EASE FTE]) && ISBLANK(FACULTY_B[Final_Validated_FTE]) && ISBLANK(FACULTY_B[FTE]), 2,
+    FACULTY_B[EASE FTE] > FACULTY_B[FTE],2
+)
+
+-- Identifies records as 'Vacant' in FACULTY_B dataset based on name, colour code, or employee number.
+Vacants Check = 
+SWITCH(TRUE(),
+    FACULTY_B[FIRST_NAME] = "vacant" && FACULTY_B[LASTNAME] = "vacant", "Vacant",
+    FACULTY_B[Colour Code] = 2,"Vacant",
+    FACULTY_B[STAFF_ID] = "vacant","Vacant",
+    "Non Vacant"
+)
+-- Flags duplicate STAFF_ID entries in FACULTY_A dataset.
+EmployeeNo_Duplicate_Check = 
+VAR CurrentValue = 'FACULTY_A'[STAFF_ID]
+RETURN 
+IF(
+    ISBLANK(CurrentValue),
+    FALSE(),
+    CALCULATE(
+        COUNTROWS('FACULTY_A'),
+        FILTER('FACULTY_A', 'FACULTY_A'[STAFF_ID] = CurrentValue)
+    ) > 1
+)
+
+-- Flags duplicate POST ID entries in FACULTY_A dataset.
+PostID_Duplicate_Check = 
+VAR CurrentValue = 'FACULTY_A'[POST ID ]
+RETURN 
+IF(
+    ISBLANK(CurrentValue),
+    FALSE(),
+    CALCULATE(
+        COUNTROWS('FACULTY_A'),
+        FILTER('FACULTY_A', 'FACULTY_A'[POST ID ] = CurrentValue)
+    ) > 1
+)
+
+-- Generates anonymised code for each employee in FACULTY_A to pseudonymise identity.
+Anonymised Code = 
+VAR Emp = 'FACULTY_A'[STAFF_ID]
+VAR PostA = 'FACULTY_A'[POST ID ]
+VAR FirstName = 'FACULTY_A'[FIRST_NAME]
+RETURN
+IF (
+    ISBLANK(Emp),
+    BLANK(),
+    VAR BaseCode = "A" & RIGHT(Emp, 6)
+    VAR UniqueCombos =
+        SUMMARIZE(
+            FILTER(
+                'FACULTY_A',
+                'FACULTY_A'[STAFF_ID] = Emp
+            ),
+            'FACULTY_A'[POST ID ],
+            'FACULTY_A'[FIRST_NAME]
+        )
+    VAR UniqueComboCount = COUNTROWS(UniqueCombos)
+    VAR CurrentCombo = PostA & "|" & FirstName
+    VAR ComboWithIndex =
+        ADDCOLUMNS(
+            UniqueCombos,
+            "ComboKey", 'FACULTY_A'[POST ID ] & "|" & 'FACULTY_A'[FIRST_NAME]
+        )
+    VAR Index =
+        RANKX(
+            ComboWithIndex,
+            [ComboKey],
+            CurrentCombo,
+            ASC,
+            DENSE
+        )
+    RETURN
+        IF(
+            UniqueComboCount = 1,
+            BaseCode,
+            BaseCode & "_" & Index
+        )
+)
+-- Builds a concatenated ID1 identifier from key fields in FACULTY_A dataset.
+ID1_Name = [DEPT] & "|" & [STAFF_ID] & "|" & [ASSIGNMENT_ID] & "|" & [LASTNAME]
+
+-- Validates and returns the most appropriate FTE value for an employee or flags with 2.
+Final_Validated_FTE 1 = 
+VAR Emp = 'FACULTY_A'[STAFF_ID]
+VAR EmpCount =
+    CALCULATE(
+        COUNTROWS('FACULTY_A'),
+        FILTER('FACULTY_A', 'FACULTY_A'[STAFF_ID] = Emp)
+    )
+RETURN
+SWITCH(
+    TRUE(),
+    EmpCount > 1, 2,
+    'FACULTY_A'[Final_Validated_FTE] > 0 && 'FACULTY_A'[Final_Validated_FTE] <= 1, 'FACULTY_A'[Final_Validated_FTE],
+    NOT(ISBLANK('FACULTY_A'[Final_Validated_FTE])) && ('FACULTY_A'[Final_Validated_FTE] > 1 || 'FACULTY_A'[Final_Validated_FTE] = 0), 2,
+    ISBLANK('FACULTY_A'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_A'[Validated_FTE])) &&
+    'FACULTY_A'[Validated_FTE] > 0 && 'FACULTY_A'[Validated_FTE] <= 1, 'FACULTY_A'[Validated_FTE],
+    ISBLANK('FACULTY_A'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_A'[Validated_FTE])) &&
+    ('FACULTY_A'[Validated_FTE] > 1 || 'FACULTY_A'[Validated_FTE] = 0), 2,
+    ISBLANK('FACULTY_A'[Final_Validated_FTE]) && ISBLANK('FACULTY_A'[Validated_FTE]) && NOT(ISBLANK('FACULTY_A'[FTE])) &&
+    'FACULTY_A'[FTE] > 0 && 'FACULTY_A'[FTE] <= 1, 'FACULTY_A'[FTE],
+    ISBLANK('FACULTY_A'[Final_Validated_FTE]) && ISBLANK('FACULTY_A'[Validated_FTE]) && NOT(ISBLANK('FACULTY_A'[FTE])) &&
+    ('FACULTY_A'[FTE] > 1 || 'FACULTY_A'[FTE] = 0), 2,
+    NOT(ISBLANK('FACULTY_A'[FTE])) && NOT(ISBLANK('FACULTY_A'[Validated_FTE])) &&
+    ('FACULTY_A'[FTE] + 'FACULTY_A'[Validated_FTE] > 1), 2,
+    ISBLANK('FACULTY_A'[Validated_FTE]) && ISBLANK('FACULTY_A'[Final_Validated_FTE]) && ISBLANK('FACULTY_A'[FTE]), 2,
+    'FACULTY_A'[Validated_FTE] > 'FACULTY_A'[Final_Validated_FTE], 2
+)
+
+-- Compares STAFF_ID from FACULTY_A with Staff Data to confirm match status.
+Employee Match Status = 
+VAR EmpNum = 'FACULTY_A'[STAFF_ID]
+VAR Employee = LOOKUPVALUE('Staff Data'[STAFF_ID], 'Staff Data'[STAFF_ID], EmpNum)
+RETURN
+IF(
+    ISBLANK(EmpNum),
+    BLANK(),
+    IF(
+        ISBLANK(Employee),
+        "No Match",
+        "Match"
+    )
+)
+
+-- Flags FACULTY_A rows as 'Vacant' using multiple business logic checks.
+Vacants Check = 
+SWITCH(TRUE(),
+    'FACULTY_A'[FIRST_NAME] = "vacant" && 'FACULTY_A'[LASTNAME] = "vacant", "Vacant",
+    'FACULTY_A'[Colour Code] = 2, "Vacant",
+    'FACULTY_A'[STAFF_ID] = "vacant", "Vacant",
+    "Non Vacant"
+)
+
