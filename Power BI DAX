@@ -377,18 +377,18 @@ SWITCH(
     EmpCount > 1,2,
     'FACULTY_B'[Final_Validated_FTE] > 0 && 'FACULTY_B'[Final_Validated_FTE] <= 1, 'FACULTY_B'[Final_Validated_FTE],
     NOT(ISBLANK('FACULTY_B'[Final_Validated_FTE])) && ('FACULTY_B'[Final_Validated_FTE] > 1 || 'FACULTY_B'[Final_Validated_FTE] = 0), 2,
-    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_B'[Ease FTE])) &&
-    'FACULTY_B'[Ease FTE] > 0 && 'FACULTY_B'[Ease FTE] <= 1, 'FACULTY_B'[Ease FTE],
-    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_B'[Ease FTE])) &&
-    ('FACULTY_B'[Ease FTE] > 1 || 'FACULTY_B'[Ease FTE] = 0), 2,
-    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && ISBLANK('FACULTY_B'[Ease FTE]) && NOT(ISBLANK('FACULTY_B'[FTE])) &&
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_B'[Validated FTE])) &&
+    'FACULTY_B'[Validated FTE] > 0 && 'FACULTY_B'[Ease FTE] <= 1, 'FACULTY_B'[Validated FTE],
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && NOT(ISBLANK('FACULTY_B'[Validated FTE])) &&
+    ('FACULTY_B'[Validated FTE] > 1 || 'FACULTY_B'[Validated FTE] = 0), 2,
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && ISBLANK('FACULTY_B'[Validated FTE]) && NOT(ISBLANK('FACULTY_B'[FTE])) &&
     'FACULTY_B'[FTE] > 0 && 'FACULTY_B'[FTE] <= 1, 'FACULTY_B'[FTE],
-    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && ISBLANK('FACULTY_B'[Ease FTE]) && NOT(ISBLANK('FACULTY_B'[FTE])) &&
+    ISBLANK('FACULTY_B'[Final_Validated_FTE]) && ISBLANK('FACULTY_B'[Validated FTE]) && NOT(ISBLANK('FACULTY_B'[FTE])) &&
     ('FACULTY_B'[FTE] > 1 || 'FACULTY_B'[FTE] = 0), 2,
-    NOT(ISBLANK('FACULTY_B'[FTE])) && NOT(ISBLANK('FACULTY_B'[Ease FTE])) &&
-    ('FACULTY_B'[FTE] + 'FACULTY_B'[Ease FTE] > 1), 2,
-    ISBLANK(FACULTY_B[EASE FTE]) && ISBLANK(FACULTY_B[Final_Validated_FTE]) && ISBLANK(FACULTY_B[FTE]), 2,
-    FACULTY_B[EASE FTE] > FACULTY_B[FTE],2
+    NOT(ISBLANK('FACULTY_B'[FTE])) && NOT(ISBLANK('FACULTY_B'[Validated FTE])) &&
+    ('FACULTY_B'[FTE] + 'FACULTY_B'[Validated FTE] > 1), 2,
+    ISBLANK(FACULTY_B[Validated FTE]) && ISBLANK(FACULTY_B[Final_Validated_FTE]) && ISBLANK(FACULTY_B[FTE]), 2,
+    FACULTY_B[Validated FTE] > FACULTY_B[FTE],2
 )
 
 -- Identifies records as 'Vacant' in FACULTY_B dataset based on name, colour code, or employee number.
